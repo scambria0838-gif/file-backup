@@ -1,0 +1,10 @@
+# Environment files with secrets
+.env
+.env.local
+.env.*.local
+
+# Local settings overrides
+.claude/settings.local.json
+
+# Node
+node_modules/
