@@ -1,0 +1,15 @@
+{
+  "name": "ai-orchestrator",
+  "version": "6.0.0",
+  "description": "Multi-model AI orchestrator — OpenRouter + Ollama, persistent sessions, autonomous tool loop",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev":   "node --watch server.js"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "license": "MIT"
+}
