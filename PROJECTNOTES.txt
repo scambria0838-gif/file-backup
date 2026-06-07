@@ -1,0 +1,228 @@
+# AI-Meeting Project Notes
+# Last updated: June 2026
+# Purpose: Full project summary in case conversation is lost or restarted.
+
+=============================================================
+WHAT THIS PROJECT IS
+=============================================================
+A self-hosted multi-model AI orchestration server.
+Your AI (similar to Ninja Tech) can POST messages to this
+server as a fallback when your main site is down.
+It also serves a full browser dashboard for managing models,
+modes, and autonomous agent sessions.
+
+Single file: server.js
+Runs on Node.js 18+ (ESM — uses "type": "module" in package.json)
+Dashboard at: http://your-server-ip:8080
+API endpoint at: http://your-server-ip:8080/chat
+Session data: .session.json (auto-created, persists across restarts)
+
+=============================================================
+MODELS CONFIGURED
+=============================================================
+1. Qwen 2.5 Abliterated (local, via Ollama)
+   - id: qwen
+   - target: huihui_ai/qwen2.5-abliterate:latest
+   - role: developer
+   - default active model
+
+2. Llama 3.2 1B Abliterated (local, via Ollama)
+   - id: llama-small
+   - target: huihui_ai/llama3.2-abliterate:1b
+   - role: researcher
+   - fast/lightweight model for simple tasks
+
+3. Llama 3.3 70B Instruct (cloud, via OpenRouter)
+   - id: or-llama70b
+   - target: meta-llama/llama-3.3-70b-instruct
+   - role: supervisor
+   - disabled by default — enable in dashboard
+   - requires OPENROUTER_KEY env var
+
+=============================================================
+MODES
+=============================================================
+single     - one model answers
+multi      - all enabled models answer in parallel
+supervisor - models draft, supervisor arbitrates final answer
+debate     - two models argue N rounds, supervisor gives verdict
+autonomous - agent loop with tool use (see tools below)
+
+=============================================================
+TOOLS (autonomous mode only, all OFF by default)
+=============================================================
+run_shell  - execute bash commands on the server
+read_file  - read a file from disk
+write_file - write/create a file on disk
+http_fetch - make outbound HTTP GET requests
+
+IMPORTANT: Enable only the tools you need.
+If the agent requests a disabled tool, the loop PAUSES
+and shows an Approve / Deny prompt in the dashboard.
+There is also a Kill switch to stop the agent immediately.
+Max iterations cap prevents runaway loops.
+
+=============================================================
+HOW TO RUN
+=============================================================
+# Install Node.js (if not already installed)
+curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+sudo apt-get install -y nodejs
+
+# Install Ollama (if using local models)
+curl -fsSL https://ollama.com/install.sh | sh
+
+# Pull the local models
+ollama pull huihui_ai/qwen2.5-abliterate:latest
+ollama pull huihui_ai/llama3.2-abliterate:1b
+
+# Start the server (minimum)
+RELAY_SECRET=your-secret-here node server.js
+
+# With OpenRouter enabled
+RELAY_SECRET=your-secret-here OPENROUTER_KEY=sk-or-... node server.js
+
+# All environment variables (copy to a .env file and use dotenv, or export manually)
+PORT=8080
+OLLAMA_URL=http://localhost:11434
+RELAY_SECRET=your-secret-here
+OPENROUTER_KEY=sk-or-...
+SESSION_FILE=.session.json   # where agent history is saved
+
+# Open dashboard in browser
+http://your-server-ip:8080
+
+=============================================================
+HOW YOUR BOT CALLS IT
+=============================================================
+POST http://your-server-ip:8080/chat
+Headers:
+  content-type: application/json
+  x-relay-key: your-secret-here
+Body:
+  { "message": "hello" }
+
+Response:
+  { "reply": "...", "model_used": "qwen", "mode": "single" }
+
+=============================================================
+API ENDPOINTS
+=============================================================
+GET  /                   - Dashboard UI (no auth needed)
+GET  /status             - Current config, banner, model list
+GET  /models             - List all models
+GET  /session            - Autonomous session state + log + message count
+GET  /session/history    - Full message history array (NEW in Stage 6)
+POST /session/reset      - Clear history, new session ID (NEW in Stage 6)
+POST /session/approve    - { approved: true|false } resolve paused tool call
+POST /session/kill       - Kill the running autonomous session
+POST /chat               - Send a message { message, model?, mode?, system? }
+POST /models/toggle      - { id, enabled } enable/disable a model
+POST /models/role        - { id, role } assign a role
+POST /models/upsert      - { id, backend, target, name?, role? } add/update model
+POST /mode               - { mode, active_model?, supervisor_id?, debate?, autonomous? }
+POST /supervisor         - { id } assign supervisor (null to clear)
+POST /tools/toggle       - { tool, enabled } enable/disable a tool
+
+=============================================================
+DEPLOYMENT (HOSTINGER VPS)
+=============================================================
+1. Log into Hostinger control panel
+2. Go to VPS section, find your server IP
+3. SSH into it:
+   ssh root@your-server-ip
+4. Upload server.js and package.json:
+   scp server.js package.json root@your-server-ip:/root/AI-Meeting/
+5. Install Node.js and Ollama (commands above)
+6. Run the server
+7. Optional: set up nginx reverse proxy so it's accessible
+   at your domain with HTTPS instead of raw IP:port
+
+NGINX config example:
+  server {
+    listen 80;
+    server_name yourdomain.com;
+    location / {
+      proxy_pass http://localhost:8080;
+      proxy_http_version 1.1;
+      proxy_set_header Upgrade $http_upgrade;
+      proxy_set_header Connection 'upgrade';
+      proxy_set_header Host $host;
+    }
+  }
+
+=============================================================
+WHAT STILL NEEDS TO BE DONE
+=============================================================
+1. DEPLOY TO HOSTINGER VPS
+   - SSH in, upload server.js + package.json, install Node + Ollama, run it
+   - Set up nginx + domain if you want a clean URL + HTTPS
+
+2. PERSISTENT STATE — DONE in Stage 6
+   - Agent message history + session log saved to .session.json
+   - Survives server restarts; session auto-marked killed on restart
+   - Dashboard shows live message count and session ID
+   - New endpoints: GET /session/history, POST /session/reset
+
+3. NVIDIA BACKEND
+   - Was discussed but not built yet
+   - Would let you use NVIDIA-hosted big models (no VRAM needed)
+   - Same pattern as OpenRouter — just different base URL + auth
+   - Ask Claude to add it when ready
+
+4. CONNECT YOUR MAIN BOT
+   - Point your existing Ninja Tech style bot at this server
+   - Use as fallback when your main site is down
+   - Bot POSTs to /chat with x-relay-key header
+
+5. RUN AS A SERVICE (optional but recommended)
+   - Use PM2 or systemd so server restarts automatically
+   - Install PM2: npm install -g pm2
+   - Run: pm2 start server.js --name ai-meeting
+   - Auto-start on reboot: pm2 startup && pm2 save
+
+6. OPENROUTER KEY
+   - Get one at openrouter.ai
+   - Enable the Llama 3.3 70B model in the dashboard
+   - Set OPENROUTER_KEY env var when starting server
+
+=============================================================
+STAGES COMPLETED
+=============================================================
+Stage 1 - Model registry + single-model chat
+Stage 2 - Dashboard UI + supervisor banner
+Stage 3 - Multi fan-out + supervisor arbitration
+Stage 4 - Debate mode + OpenRouter backend
+Stage 5 - Autonomous tool use + selectable tools + kill switch
+Stage 6 - Persistent session state + correct tool_call_id + dual backend fix
+
+Stage 6 details:
+  - Disk-backed session (.session.json): agent message history and
+    event log survive server restarts
+  - On restart mid-run: session auto-marked killed, UI reflects it
+  - tool_call_id: every tool result now carries both tool_call_id
+    AND name field (required by several OpenRouter-hosted models)
+  - Ollama tool call IDs generated when missing (Ollama <=0.3 omits them)
+  - Ollama arguments normalized from object -> JSON string automatically
+  - Both backends (Ollama + OpenRouter) return same normalized shape
+    so they can be switched mid-session without breaking history
+  - New dashboard buttons: View History, Reset Session
+  - New endpoints: GET /session/history, POST /session/reset
+  - package.json added (ESM, Node >=18)
+  - .env.example added
+
+=============================================================
+IF YOU NEED TO CONTINUE THIS IN A NEW CONVERSATION
+=============================================================
+Tell Claude:
+"I have a project called AI-Meeting. It's a Node.js
+multi-model AI orchestration server (server.js) with a
+built-in dashboard. We completed all 6 stages. I need
+to continue where we left off."
+
+Then share this notes file or the server.js file and
+Claude can pick up from exactly where things stand.
+
+=============================================================
+END OF NOTES
+=============================================================
